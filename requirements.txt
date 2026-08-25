@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+gitpython
+python-dotenv
+tree-sitter
+tree-sitter-python
+networkx
