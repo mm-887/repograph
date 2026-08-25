@@ -1,3 +1,5 @@
+import os 
+from app import config
 from fastapi import HTTPException
 from app.graph.registry import get_graph
 from fastapi import FastAPI
@@ -43,5 +45,22 @@ async def query_endpoint(owner: str, repo_name: str, function_name: str):
     else:
         raise HTTPException(status_code=404, detail="Function not found")
     
-
+@app.post("/repos/{owner}/{repo_name}/index")
+async def index_repo_endpoint(owner: str, repo_name: str):
+    path = os.path.join(config.REPOS_DIR,owner,repo_name)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Repo not found")
+    graph = process_repo(path)
+    store_graph(owner, repo_name, graph)
+    return {
+        "message": "Repo indexed successfully",
+        "owner": owner,
+        "repo_name": repo_name,
+        "graph": {
+            "nodes": graph.G.number_of_nodes(),
+            "edges": graph.G.number_of_edges()
+        }
+    }
+    
+    
     
