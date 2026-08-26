@@ -8,9 +8,12 @@ from pydantic import BaseModel
 from app.parser.pipeline import process_repo
 from app.graph.registry import store_graph
 from app.graph.vector_store import search
+from app.rag.engine import answer_question
 
 class RepoUrl(BaseModel):
     repo_url: str
+class Query(BaseModel):
+    question: str
 
 app = FastAPI(title="RepoGraph", version="0.1.0")
 
@@ -70,4 +73,9 @@ def search_endpoint(owner: str, repo_name: str, query: str):
         raise HTTPException(status_code=404, detail="No results found")
     return results
     
-    
+@app.post("/repos/{owner}/{repo_name}/ask")
+def ask_endpoint(owner: str, repo_name: str, query: Query):
+    results = answer_question(owner, repo_name, query.question)
+    if not results:
+        raise HTTPException(status_code=404, detail="Could not answer question")
+    return {"answer": results}
