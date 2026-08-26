@@ -7,6 +7,7 @@ from app.github.sync import clone_repo
 from pydantic import BaseModel
 from app.parser.pipeline import process_repo
 from app.graph.registry import store_graph
+from app.graph.vector_store import search
 
 class RepoUrl(BaseModel):
     repo_url: str
@@ -19,7 +20,7 @@ async def root():
 @app.post("/repos/clone")
 async def clone_repo_endpoint(repo: RepoUrl):
     full_path, owner, repo_name = clone_repo(repo.repo_url)
-    graph = process_repo(full_path)
+    graph = process_repo(owner, repo_name)
     store_graph(owner, repo_name, graph)    
     return {
         "message": "Repo cloned successfully", 
@@ -50,7 +51,7 @@ async def index_repo_endpoint(owner: str, repo_name: str):
     path = os.path.join(config.REPOS_DIR,owner,repo_name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Repo not found")
-    graph = process_repo(path)
+    graph = process_repo(owner, repo_name)
     store_graph(owner, repo_name, graph)
     return {
         "message": "Repo indexed successfully",
@@ -61,6 +62,12 @@ async def index_repo_endpoint(owner: str, repo_name: str):
             "edges": graph.G.number_of_edges()
         }
     }
-    
+
+@app.get("/repos/{owner}/{repo_name}/search")
+async def search_endpoint(owner: str, repo_name: str, query: str):
+    results = search(owner, repo_name, query)
+    if not results:
+        raise HTTPException(status_code=404, detail="No results found")
+    return results
     
     

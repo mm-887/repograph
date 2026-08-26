@@ -1,29 +1,38 @@
 def traverse(node, entities, file_path, relationships, current_function=None):
     if node.type == 'module':
+        entity_name = str(file_path)
         entities.append({
             'type': 'module',
-            'name': file_path,
-            'start_point': node.start_point,
-            'end_point': node.end_point,
-            'file': file_path
+            'name': entity_name,
+            'id': f"{file_path}:{entity_name}:{node.start_point.row}",
+            'start_line': node.start_point.row,
+            'end_line': node.end_point.row,
+            'file': file_path,
+            'code': node.text.decode('utf-8',errors='replace')
         })
 
     if node.type == 'function_definition':
+        entity_name = node.child_by_field_name('name').text.decode('utf-8')
         entities.append({
             'type': node.type,
-            'name': node.child_by_field_name('name').text.decode('utf-8'),
-            'start_point': node.start_point,
-            'end_point': node.end_point,
-            "file": file_path
+            'name': entity_name,
+            'id': f"{file_path}:{entity_name}:{node.start_point.row}",
+            'start_line': node.start_point.row,
+            'end_line': node.end_point.row,
+            "file": file_path,
+            'code': node.text.decode('utf-8',errors='replace')
         })
 
     if node.type == 'class_definition':
+        entity_name = node.child_by_field_name('name').text.decode('utf-8')
         entities.append({
             'type': node.type,
-            'name': node.child_by_field_name('name').text.decode('utf-8'),
-            'start_point': node.start_point,
-            'end_point': node.end_point,
-            "file": file_path
+            'name': entity_name,
+            'id': f"{file_path}:{entity_name}:{node.start_point.row}",
+            'start_line': node.start_point.row,
+            'end_line': node.end_point.row,
+            "file": file_path,
+            'code': node.text.decode('utf-8',errors='replace')
         })
 
     if node.type == 'call':
@@ -47,7 +56,7 @@ def traverse(node, entities, file_path, relationships, current_function=None):
                 'from': file_path,
                 'to': mod_node.text.decode('utf-8')
             })
-            
+
     elif node.type == "import_from_statement":
         mod_node = node.child_by_field_name('module_name')
         if mod_node:

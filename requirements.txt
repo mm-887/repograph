@@ -5,3 +5,5 @@ python-dotenv
 tree-sitter
 tree-sitter-python
 networkx
+chromadb
+sentence-transformers
