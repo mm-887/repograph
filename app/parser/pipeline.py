@@ -16,7 +16,7 @@ def process_repo(owner, repo_name):
         except Exception as e:
             print(f"Error parsing {file_path}: {e}")
             continue
-        entities, relationships = extract_entities(tree, file_path)
+        entities, relationships = extract_entities(tree, str(file_path))
         for entity in entities:
             repo_graph.add_entity(entity)
         all_entities.extend(entities)

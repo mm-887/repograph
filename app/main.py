@@ -18,7 +18,7 @@ app = FastAPI(title="RepoGraph", version="0.1.0")
 async def root():
     return {"message": "Hello World", "status": "running", "app": "RepoGraph"}
 @app.post("/repos/clone")
-async def clone_repo_endpoint(repo: RepoUrl):
+def clone_repo_endpoint(repo: RepoUrl):
     full_path, owner, repo_name = clone_repo(repo.repo_url)
     graph = process_repo(owner, repo_name)
     store_graph(owner, repo_name, graph)    
@@ -47,7 +47,7 @@ async def query_endpoint(owner: str, repo_name: str, function_name: str):
         raise HTTPException(status_code=404, detail="Function not found")
     
 @app.post("/repos/{owner}/{repo_name}/index")
-async def index_repo_endpoint(owner: str, repo_name: str):
+def index_repo_endpoint(owner: str, repo_name: str):
     path = os.path.join(config.REPOS_DIR,owner,repo_name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Repo not found")
@@ -64,7 +64,7 @@ async def index_repo_endpoint(owner: str, repo_name: str):
     }
 
 @app.get("/repos/{owner}/{repo_name}/search")
-async def search_endpoint(owner: str, repo_name: str, query: str):
+def search_endpoint(owner: str, repo_name: str, query: str):
     results = search(owner, repo_name, query)
     if not results:
         raise HTTPException(status_code=404, detail="No results found")

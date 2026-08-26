@@ -1,11 +1,10 @@
 import os
 import chromadb
 from chromadb.utils import embedding_functions
+from app import config
 
-CHROMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'chromadb')
-os.makedirs(CHROMA_PATH, exist_ok=True)
-
-client = chromadb.PersistentClient(path=CHROMA_PATH)
+os.makedirs(config.CHROMA_DIR, exist_ok=True)
+client = chromadb.PersistentClient(path=config.CHROMA_DIR)
 
 embedding_func = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
