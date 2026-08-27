@@ -2,8 +2,8 @@ fastapi
 uvicorn[standard]
 gitpython
 python-dotenv
-tree-sitter
-tree-sitter-python
+tree-sitter==0.25.0
+tree-sitter-python==0.25.0
 networkx
 chromadb
 sentence-transformers

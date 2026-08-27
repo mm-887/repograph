@@ -17,7 +17,7 @@ def chunk_text(text, chunk_size = 1000, overlap = 200):
         start += (chunk_size - overlap)
     return chunks
 
-def index_entities(owner, repo_name, entities):
+def index_entities(owner, repo_name, entities, batch_size=5000):
     collection_name = f"{owner}.{repo_name}"
     collection = client.get_or_create_collection(
         name=collection_name,
@@ -43,11 +43,12 @@ def index_entities(owner, repo_name, entities):
             documents.append(chunk)
             metadatas.append(meta)
         
-    if new_ids:
+    for start in range(0, len(new_ids), batch_size):
+        end = start + batch_size
         collection.upsert(
-            ids=new_ids,
-            documents=documents,
-            metadatas=metadatas
+            ids=new_ids[start:end],
+            documents=documents[start:end],
+            metadatas=metadatas[start:end]
         )
 
     stale_ids = list(set(existing_ids) - set(new_ids))
@@ -69,4 +70,3 @@ def search(owner, repo_name, query, n_results=5):
         n_results=n_results
     )
     return results
-
