@@ -31,10 +31,12 @@ def traverse(node, entities, file_path, relationships, current_function=None, cu
     if node.type == 'function_definition':
         raw = node.child_by_field_name('name').text.decode('utf-8')
         entity_name = f"{current_class}.{raw}" if current_class else raw
+        entity_id = f"{file_path}:{entity_name}:{node.start_point.row}"
+        current_function = entity_id
         entities.append({
             'type': node.type,
             'name': entity_name,
-            'id': f"{file_path}:{entity_name}:{node.start_point.row}",
+            'id': entity_id,
             'start_line': node.start_point.row,
             'end_line': node.end_point.row,
             "file": file_path,
@@ -63,7 +65,7 @@ def traverse(node, entities, file_path, relationships, current_function=None, cu
             })
     
     if node.type == "function_definition":
-        next_function = entity_name
+        next_function = entity_id
     else:
         next_function = current_function
 

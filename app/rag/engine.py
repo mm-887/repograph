@@ -1,20 +1,43 @@
+import re
 from app.graph.vector_store import search
 from app.graph.registry import get_graph
 from app.llm.factory import get_llm_provider
 
-def resolve_seed_node(graph,question:str,vector_res:dict) -> str|None:
+def resolve_seed_node(graph, question: str, vector_res: dict) -> str | None:
     if not graph:
         return None
-    for node, data in graph.G.nodes(data=True):
-        if data.get('type') in ('function_definition', 'class_definition'):
-            if len(node) > 2 and node in question:
-                return node
-    if vector_res and vector_res.get('metadatas') and vector_res['metadatas'][0]:
-        for meta in vector_res['metadatas'][0]:
-            candidate = meta.get('name')
-            if candidate and graph.G.has_node(candidate):
-                return candidate
+    if not vector_res or not vector_res.get('metadatas') or not vector_res['metadatas'][0]:
+        return None
+
+    candidates = []
+    seen = set()
+
+    for rank, meta in enumerate(vector_res['metadatas'][0]):
+        name = meta.get('name')
+        if not name or name in seen:
+            continue
+        seen.add(name)
+
+        node_ids = graph.name_index.get(name, [])
+        for node_id in node_ids:
+            node_data = graph.G.nodes.get(node_id, {})
+            if node_data.get('type') != 'function_definition':
+                continue
+            if "/tests/" in node_id.replace("\\", "/"):
+                continue
+            vector_score = (len(vector_res['metadatas'][0]) - rank) * 5
+            out_edges = len([e for e in graph.G.successors(node_id) 
+                           if graph.G.get_edge_data(node_id, e, {}).get('type') == 'calls'])
+            seed_score = vector_score + out_edges
+            candidates.append((seed_score, node_id))
+
+    if candidates:
+        candidates.sort(reverse=True)
+        return candidates[0][1]
+
     return None
+
+
     
 def answer_question(owner:str, repo_name:str, question:str):
     vector_res = search(owner, repo_name, question, n_results=5)
@@ -30,16 +53,17 @@ def answer_question(owner:str, repo_name:str, question:str):
     if graph and seed_node:
         traversed_nodes = graph.bfs(seed_node, max_depth=4, max_nodes=15)
         if traversed_nodes:
-            relationships.append(f"Execution Call Flow: {' -> '.join(traversed_nodes)}")
+            node_names = [graph.G.nodes[n].get('name', n) for n in traversed_nodes]
+            relationships.append(f"Execution Call Flow: {' -> '.join(node_names)}")
             for i, node_name in enumerate(traversed_nodes):
                 node_data = graph.G.nodes.get(node_name, {})
                 if i < 5 and node_data.get('type') == 'function_definition' and node_data.get('code'):
                     code_snippets.append(
-                        f"File: {node_data.get('file')}\nSymbol: {node_name}\nCode:\n{node_data.get('code')}\n"
+                        f"File: {node_data.get('file')}\nSymbol: {node_data.get('name')}\nCode:\n{node_data.get('code')}\n"
                     )
                 else:
                     code_snippets.append(
-                        f"Symbol: {node_name} | File: {node_data.get('file')} | Lines: {node_data.get('start_line')}-{node_data.get('end_line')}"
+                        f"Symbol: {node_data.get('name')} | File: {node_data.get('file')} | Lines: {node_data.get('start_line')}-{node_data.get('end_line')}"
                     )
     if not traversed_nodes:
             

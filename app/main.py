@@ -79,3 +79,37 @@ def ask_endpoint(owner: str, repo_name: str, query: Query):
     if not results:
         raise HTTPException(status_code=404, detail="Could not answer question")
     return {"answer": results}
+
+@app.get("/repos/{owner}/{repo_name}/debug")
+def debug_endpoint(owner: str, repo_name: str, question: str = ""):
+    from app.rag.engine import resolve_seed_node
+    graph = get_graph(owner, repo_name)
+    if not graph:
+        return {"error": "Graph not loaded. Re-index first."}
+    
+    call_edges = [(u, v) for u, v, d in graph.G.edges(data=True) if d.get('type') == 'calls']
+    sample_edges = [
+        {"from": graph.G.nodes[u].get('name', u), "to": graph.G.nodes[v].get('name', v)}
+        for u, v in call_edges[:20]
+    ]
+    
+    result = {
+        "nodes": graph.G.number_of_nodes(),
+        "edges": graph.G.number_of_edges(),
+        "call_edges": len(call_edges),
+        "sample_call_edges": sample_edges,
+        "name_index_size": len(graph.name_index),
+        "sample_names": list(graph.name_index.keys())[:20],
+    }
+    
+    if question:
+        vector_res = search(owner, repo_name, question, n_results=5)
+        seed = resolve_seed_node(graph, question, vector_res)
+        seed_name = graph.G.nodes[seed].get('name') if seed else None
+        bfs_result = graph.bfs(seed, max_depth=4, max_nodes=15) if seed else []
+        bfs_names = [graph.G.nodes[n].get('name', n) for n in bfs_result] if bfs_result else []
+        result["seed_node_id"] = seed
+        result["seed_node_name"] = seed_name
+        result["bfs_path"] = bfs_names
+    
+    return result
