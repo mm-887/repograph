@@ -8,6 +8,18 @@ client = chromadb.PersistentClient(path=config.CHROMA_DIR)
 
 embedding_func = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
+def create_retrieval_text(entity:dict) -> str:
+    entity_type = entity.get('type')
+    name = entity.get('name', '')
+    file_path = entity.get('file', '')
+    code = entity.get('code', '')
+    if entity_type == 'function_definition':
+        return f"File: {file_path}\nFunction: {name}\n{code}"
+    elif entity_type == 'class_definition':
+        return f"File: {file_path}\nClass: {name}\n{code[:600]}"
+    return ""  
+    
+
 def chunk_text(text, chunk_size = 1000, overlap = 200):
     chunks = []
     start = 0
@@ -23,25 +35,27 @@ def index_entities(owner, repo_name, entities, batch_size=5000):
         name=collection_name,
         embedding_function=embedding_func
     )
-    existing_ids = collection.get("ids")["ids"]
+    existing_ids = collection.get()["ids"]
     
     new_ids = []
     documents = []
     metadatas = []
 
     for entity in entities:
-        if 'code' not in entity or not entity['code']:
+        doc_text = create_retrieval_text(entity)
+        if not doc_text.strip():
             continue
-        chunks = chunk_text(entity['code'])
-
-        for i,chunk in enumerate(chunks):
-            chunk_id = f"{entity['id']}_chunk_{i}"
-
-            meta = {k:v for k,v in entity.items() if k != 'code'}
-
-            new_ids.append(chunk_id)
-            documents.append(chunk)
-            metadatas.append(meta)
+        if len(doc_text) > 2500:
+            chunks = chunk_text(doc_text, chunk_size=2000, overlap=300)
+            for i,chunk in enumerate(chunks):
+                chunk_id = f"{entity['id']}_chunk_{i}"
+                new_ids.append(chunk_id)
+                documents.append(chunk)
+                metadatas.append({k: v for k, v in entity.items() if k != 'code'})
+        else:
+            new_ids.append(entity['id'])
+            documents.append(doc_text)
+            metadatas.append({k: v for k, v in entity.items() if k != 'code'})
         
     for start in range(0, len(new_ids), batch_size):
         end = start + batch_size

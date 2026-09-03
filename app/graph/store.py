@@ -1,3 +1,4 @@
+from networkx.generators import spectral_graph_forge
 from collections import deque
 import networkx as nx
 
@@ -73,7 +74,8 @@ class RepoGraph:
             self.G.add_edge(caller, callee, **relationship)
         else:
             src = caller if self.G.has_node(caller) else None
-            dst = self.resolve_node(callee, caller = src) 
+            dst = callee if self.G.has_node(callee) else self.resolve_node(callee, caller = src)
+
             if src and dst:
                 self.G.add_edge(src, dst, **relationship)
     
@@ -98,7 +100,7 @@ class RepoGraph:
             elif direction == 'out':
                 neighbors = [(n, self.G.get_edge_data(curr_node, n)) for n in self.G.successors(curr_node)]
             for neighbor,edge_data in neighbors:
-                if edge_data and edge_data.get('type') == 'calls':
+                if edge_data and edge_data.get('type') in ('calls', 'inherits', 'defines'):
                     if neighbor not in visited:
                         visited.add(neighbor)
                         ordered_nodes.append(neighbor)

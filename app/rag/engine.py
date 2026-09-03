@@ -1,7 +1,38 @@
 import re
-from app.graph.vector_store import search
+import numpy as np
+from app.graph.vector_store import search, embedding_func
 from app.graph.registry import get_graph
 from app.llm.factory import get_llm_provider
+
+def select_nodes_for_full_code(graph, seed_node: str, traversed_nodes: list, question: str, max_full_code: int = 4) -> set:
+    selected = {seed_node}
+    other_nodes = [n for n in traversed_nodes if n != seed_node]
+    if not other_nodes:
+        return selected
+
+    node_summaries = []
+    eligible_nodes = []
+
+    for n in other_nodes:
+        data = graph.G.nodes.get(n, {})
+        code = data.get('code', '')
+        if code and data.get('type') in ('function_definition', 'class_definition'):
+            node_summaries.append(f"{data.get('name')}: {code[:300]}")
+            eligible_nodes.append(n)
+
+    if not eligible_nodes:
+        return selected
+
+    q_emb = np.array(embedding_func([question])[0])
+    node_embs = np.array(embedding_func(node_summaries))
+    scores = np.dot(node_embs, q_emb)
+    ranked_indices = np.argsort(scores)[::-1]
+
+    for idx in ranked_indices[:max_full_code - 1]:
+        selected.add(eligible_nodes[idx])
+
+    return selected
+
 
 def resolve_seed_node(graph, question: str, vector_res: dict) -> str | None:
     if not graph:
@@ -59,7 +90,8 @@ def answer_question(owner:str, repo_name:str, question:str):
     traversed_nodes = []
     relationships = []
     code_snippets = []
-    reverse_pattern = r'\b(who|what|which)\b.*?\bcalls?\b|\b(called by|callers?|used by|invoked by|where is)\b'
+
+    reverse_pattern = r'\b(who|what|which)\b.*?\b(calls?|inherits?|subclasses?)\b|\b(called by|callers?|used by|invoked by|subclasses of|inherits from|inherited by|where is)\b'
     is_reverse = bool(re.search(reverse_pattern, question, re.IGNORECASE))
     if any(kw in question.lower() for kw in ("execution flow", "call flow", "trace", "how does")):
         is_reverse = False
@@ -69,15 +101,21 @@ def answer_question(owner:str, repo_name:str, question:str):
         traversed_nodes = graph.bfs(seed_node, max_depth=4, max_nodes=15, direction=traversal_dir)
         if traversed_nodes:
             if is_reverse:
-                callers = [graph.G.nodes[n].get('name', n) for n in traversed_nodes if n != seed_node]
-                relationships.append(f"Functions that call '{graph.G.nodes[seed_node].get('name', seed_node)}': {', '.join(callers)}")
+                items = []
+                for n in traversed_nodes:
+                    if n != seed_node:
+                        edge = graph.G.get_edge_data(n, seed_node)
+                        rel_type = edge.get('type', 'calls') if edge else 'references'
+                        items.append(f"{graph.G.nodes[n].get('name', n)} ({rel_type})")
+                relationships.append(f"Incoming relationships to '{graph.G.nodes[seed_node].get('name', seed_node)}': {', '.join(items)}")
+
             else:
                 node_names = [graph.G.nodes[n].get('name', n) for n in traversed_nodes]
                 relationships.append(f"Execution Call Flow: {' -> '.join(node_names)}")
-
-            for i, node_name in enumerate(traversed_nodes):
+            full_code_nodes = select_nodes_for_full_code(graph, seed_node, traversed_nodes, question, max_full_code=4)
+            for node_name in traversed_nodes:
                 node_data = graph.G.nodes.get(node_name, {})
-                if i < 5 and node_data.get('type') == 'function_definition' and node_data.get('code'):
+                if node_name in full_code_nodes and node_data.get('code'):
                     code_snippets.append(
                         f"File: {node_data.get('file')}\nSymbol: {node_data.get('name')}\nCode:\n{node_data.get('code')}\n"
                     )
