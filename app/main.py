@@ -40,14 +40,17 @@ async def query_endpoint(owner: str, repo_name: str, function_name: str):
     graph = get_graph(owner, repo_name)
     if not graph:
         raise HTTPException(status_code=404, detail="Repo not found")
-    if graph.G.has_node(function_name):
-        return {
-                "function": function_name,
-                "callers": graph.get_callers(function_name),
-                "callees": graph.get_callees(function_name)
-            }
-    else:
+    node_id = graph.resolve_node(function_name)
+    if not node_id:
         raise HTTPException(status_code=404, detail="Function not found")
+    callers= [graph.G.nodes[nid].get('name', nid) for nid in graph.get_callers(node_id)]
+    callees = [graph.G.nodes[nid].get('name', nid) for nid in graph.get_callees(node_id)]
+    return {
+            "function": function_name,
+            "callers": callers,
+            "callees": callees,
+            "node_id": node_id,
+        }
     
 @app.post("/repos/{owner}/{repo_name}/index")
 def index_repo_endpoint(owner: str, repo_name: str):
@@ -106,10 +109,14 @@ def debug_endpoint(owner: str, repo_name: str, question: str = ""):
         vector_res = search(owner, repo_name, question, n_results=5)
         seed = resolve_seed_node(graph, question, vector_res)
         seed_name = graph.G.nodes[seed].get('name') if seed else None
-        bfs_result = graph.bfs(seed, max_depth=4, max_nodes=15) if seed else []
+        reverse_keywords = ("who calls", "what calls", "where is", "called by", "callers", "uses of", "depend on", "impact")
+        is_reverse = any(kw in question.lower() for kw in reverse_keywords)
+        traversal_dir = "in" if is_reverse else "out"
+        bfs_result = graph.bfs(seed, max_depth=4, max_nodes=15, direction=traversal_dir) if seed else []
         bfs_names = [graph.G.nodes[n].get('name', n) for n in bfs_result] if bfs_result else []
         result["seed_node_id"] = seed
         result["seed_node_name"] = seed_name
         result["bfs_path"] = bfs_names
+        result["traversal_direction"] = traversal_dir
     
     return result

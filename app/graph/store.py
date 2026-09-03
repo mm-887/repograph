@@ -11,6 +11,11 @@ class RepoGraph:
         self.name_index.setdefault(entity['name'], []).append(entity['id'])
 
     def resolve_node(self, name:str, caller:str = None):
+        caller_data = self.G.nodes.get(caller, {}) if caller else {}
+        caller_file = caller_data.get('file')
+        caller_name = caller_data.get('name', '')
+        caller_class = caller_name.split('.')[0] if '.' in caller_name else None
+        
         if not name:
             return None
         if name in self.name_index:
@@ -18,18 +23,16 @@ class RepoGraph:
             if len(candidates) == 1:
                 return candidates[0]
             else:
-                if caller:
-                    caller_file = caller.split(':')[0]
+                if caller_file:
                     for node_id in candidates:
-                        if node_id.startswith(f"{caller_file}:"):
+                        if self.G.nodes.get(node_id,{}).get('file') == caller_file:
                             return node_id
                 candidates = [c for c in candidates if "/tests/" not in c.replace("\\", "/") and "test_" not in c]
                 if len(candidates) == 1:
                     return candidates[0]
 
         leaf = name.split('.')[-1]
-        if caller:
-            caller_class = caller.split(':')[1].split('.')[0]
+        if caller_class:
             scoped_name = f"{caller_class}.{leaf}"
             if scoped_name in self.name_index:
                 return self.name_index[scoped_name][0]
@@ -41,10 +44,9 @@ class RepoGraph:
                     matches.append(node_id)
             if len(matches) == 1:
                 return matches[0]
-            if matches and caller:
-                caller_file = caller.split(':')[0]
+            if matches and caller_file:
                 for match in matches:
-                    if match.startswith(f"{caller_file}:"):
+                    if self.G.nodes.get(match,{}).get('file') == caller_file:
                         return match
             return None
             
@@ -54,10 +56,9 @@ class RepoGraph:
                 matches.append(node_id)
         if len(matches) == 1:
             return matches[0]
-        if matches and caller:
-            caller_file = caller.split(':')[0]
+        if matches and caller_file:
             for match in matches:
-                if match.startswith(f"{caller_file}:"):
+                if self.G.nodes.get(match,{}).get('file') == caller_file:
                     return match
         return None
     def add_relationship(self, relationship):
@@ -82,24 +83,27 @@ class RepoGraph:
     def get_callees(self, func_name):
         return list(self.G.successors(func_name))
 
-    def bfs(self, seed_node, max_depth:int = 3, max_nodes:int = 20):
+    def bfs(self, seed_node, max_depth:int = 3, max_nodes:int = 20, direction:str = "out"):
         if not self.G.has_node(seed_node):
             return None
         ordered_nodes = [seed_node]
         visited = {seed_node}
         q = deque([(seed_node,0)])
         while q and len(visited) < max_nodes:
-            curr = q.popleft()
-            depth = curr[1]
+            curr_node,depth = q.popleft()
             if depth >= max_depth:
                 continue
-            curr_node = curr[0]
-            for neighbor in self.G.neighbors(curr_node):
-                edge_data = self.G.get_edge_data(curr_node, neighbor)
-                if edge_data.get('type') == 'calls':
+            if direction == 'in':
+                neighbors = [(n, self.G.get_edge_data(n, curr_node)) for n in self.G.predecessors(curr_node)]
+            elif direction == 'out':
+                neighbors = [(n, self.G.get_edge_data(curr_node, n)) for n in self.G.successors(curr_node)]
+            for neighbor,edge_data in neighbors:
+                if edge_data and edge_data.get('type') == 'calls':
                     if neighbor not in visited:
                         visited.add(neighbor)
                         ordered_nodes.append(neighbor)
                         q.append((neighbor, depth + 1))
+                if len(visited) >= max_nodes:
+                    break
         return ordered_nodes
         

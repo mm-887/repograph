@@ -8,36 +8,46 @@ def resolve_seed_node(graph, question: str, vector_res: dict) -> str | None:
         return None
     if not vector_res or not vector_res.get('metadatas') or not vector_res['metadatas'][0]:
         return None
-
-    candidates = []
-    seen = set()
-
+    
+    candidate_scores = {}
     for rank, meta in enumerate(vector_res['metadatas'][0]):
-        name = meta.get('name')
-        if not name or name in seen:
+        node_id = meta.get('id')
+        if node_id and graph.G.has_node(node_id):
+            candidate_scores[node_id] = {"lexical": 0.0, "semantic": 1.0 - (rank * 0.15)}
+        elif meta.get('name') in graph.name_index:
+            for nid in graph.name_index[meta['name']]:
+                candidate_scores[nid] = {"lexical": 0.0, "semantic": 1.0 - (rank * 0.15)}
+                
+    tokens = re.findall(r'[A-Za-z0-9_.]+', question)
+    for token in tokens:
+        leaf = token.split('.')[-1]
+        for name_to_check in (token, leaf):
+            if name_to_check in graph.name_index:
+                for node_id in graph.name_index[name_to_check]:
+                    if node_id not in candidate_scores:
+                        candidate_scores[node_id] = {"lexical": 0.0, "semantic": 0.0}
+                    candidate_scores[node_id]["lexical"] = 1.0
+
+    
+    ranked_scores = []
+    for node_id in candidate_scores:
+        node_data = graph.G.nodes.get(node_id, {})
+        entity_type = node_data.get('type')
+        if entity_type not in ["function_definition", "class_definition"]:
             continue
-        seen.add(name)
+        score = (0.6 * candidate_scores[node_id]["lexical"]) + (0.4 * candidate_scores[node_id]["semantic"])
 
-        node_ids = graph.name_index.get(name, [])
-        for node_id in node_ids:
-            node_data = graph.G.nodes.get(node_id, {})
-            if node_data.get('type') != 'function_definition':
-                continue
-            if "/tests/" in node_id.replace("\\", "/"):
-                continue
-            vector_score = (len(vector_res['metadatas'][0]) - rank) * 5
-            out_edges = len([e for e in graph.G.successors(node_id) 
-                           if graph.G.get_edge_data(node_id, e, {}).get('type') == 'calls'])
-            seed_score = vector_score + out_edges
-            candidates.append((seed_score, node_id))
-
-    if candidates:
-        candidates.sort(reverse=True)
-        return candidates[0][1]
-
+        if "/tests/" in node_id.replace("\\", "/"):
+            score -= 0.2
+        out_calls = len([e for e in graph.G.successors(node_id) if graph.G.get_edge_data(node_id, e, {}).get('type') == 'calls'])
+        score += min(out_calls, 5) * 0.02
+        ranked_scores.append((score, node_id))
+    
+    ranked_scores.sort(reverse=True)
+    for score, node_id in ranked_scores:
+        if score > 0:
+            return node_id
     return None
-
-
     
 def answer_question(owner:str, repo_name:str, question:str):
     vector_res = search(owner, repo_name, question, n_results=5)
@@ -49,12 +59,22 @@ def answer_question(owner:str, repo_name:str, question:str):
     traversed_nodes = []
     relationships = []
     code_snippets = []
+    reverse_pattern = r'\b(who|what|which)\b.*?\bcalls?\b|\b(called by|callers?|used by|invoked by|where is)\b'
+    is_reverse = bool(re.search(reverse_pattern, question, re.IGNORECASE))
+    if any(kw in question.lower() for kw in ("execution flow", "call flow", "trace", "how does")):
+        is_reverse = False
+    traversal_dir = "in" if is_reverse else "out"
 
     if graph and seed_node:
-        traversed_nodes = graph.bfs(seed_node, max_depth=4, max_nodes=15)
+        traversed_nodes = graph.bfs(seed_node, max_depth=4, max_nodes=15, direction=traversal_dir)
         if traversed_nodes:
-            node_names = [graph.G.nodes[n].get('name', n) for n in traversed_nodes]
-            relationships.append(f"Execution Call Flow: {' -> '.join(node_names)}")
+            if is_reverse:
+                callers = [graph.G.nodes[n].get('name', n) for n in traversed_nodes if n != seed_node]
+                relationships.append(f"Functions that call '{graph.G.nodes[seed_node].get('name', seed_node)}': {', '.join(callers)}")
+            else:
+                node_names = [graph.G.nodes[n].get('name', n) for n in traversed_nodes]
+                relationships.append(f"Execution Call Flow: {' -> '.join(node_names)}")
+
             for i, node_name in enumerate(traversed_nodes):
                 node_data = graph.G.nodes.get(node_name, {})
                 if i < 5 and node_data.get('type') == 'function_definition' and node_data.get('code'):
@@ -73,14 +93,15 @@ def answer_question(owner:str, repo_name:str, question:str):
             
             code_snippets.append(f"File: {meta['file']}\nCode:\n{doc}\n")
             
-            node_name = meta.get('name')
-            if graph and node_name and graph.G.has_node(node_name):
-                callers = graph.get_callers(node_name)
-                callees = graph.get_callees(node_name)
+            node_id = meta.get('id')
+            if graph and node_id and graph.G.has_node(node_id):
+                callers = [graph.G.nodes[nid].get('name', nid) for nid in graph.get_callers(node_id)]
+                callees = [graph.G.nodes[nid].get('name', nid) for nid in graph.get_callees(node_id)]
+                symbol_name = meta.get('name', node_id)
                 if callers:
-                    relationships.append(f"Functions that call '{node_name}': {', '.join(callers)}")
+                    relationships.append(f"Functions that call '{symbol_name}': {', '.join(callers)}")
                 if callees:
-                    relationships.append(f"'{node_name}' calls these functions: {', '.join(callees)}")
+                    relationships.append(f"'{symbol_name}' calls these functions: {', '.join(callees)}")
 
     system_prompt="""
 You are RepoGraph, an AI assistant for understanding software repositories.
