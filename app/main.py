@@ -78,10 +78,12 @@ def search_endpoint(owner: str, repo_name: str, query: str):
     
 @app.post("/repos/{owner}/{repo_name}/ask")
 def ask_endpoint(owner: str, repo_name: str, query: Query):
-    results = answer_question(owner, repo_name, query.question)
-    if not results:
+    result = answer_question(owner, repo_name, query.question)
+    if not result:
         raise HTTPException(status_code=404, detail="Could not answer question")
-    return {"answer": results}
+    if isinstance(result, str):
+        return {"answer": result}
+    return result
 
 @app.get("/repos/{owner}/{repo_name}/debug")
 def debug_endpoint(owner: str, repo_name: str, question: str = ""):

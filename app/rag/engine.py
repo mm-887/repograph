@@ -80,7 +80,7 @@ def resolve_seed_node(graph, question: str, vector_res: dict) -> str | None:
             return node_id
     return None
     
-def answer_question(owner:str, repo_name:str, question:str):
+def answer_question(owner:str, repo_name:str, question:str) -> dict:
     vector_res = search(owner, repo_name, question, n_results=5)
     if not vector_res or not vector_res['documents'] or not vector_res['documents'][0]:
         return "No context found"
@@ -214,4 +214,20 @@ the repository.
     </graph_relationships>
     """
     provider = get_llm_provider()
-    return provider.generate_response(system_prompt, user_prompt)
+    answer_text = provider.generate_response(system_prompt, user_prompt)
+    sources = []
+    for n in traversed_nodes:
+        data = graph.G.nodes.get(n, {})
+        sources.append({
+            "symbol": data.get("name", n),
+            "file": data.get("file"),
+            "lines": f"{data.get('start_line')}-{data.get('end_line')}",
+            "hydrated": "full_code" if n in full_code_nodes else "metadata"
+        })
+    return {
+        "answer": answer_text,
+        "seed_symbol": graph.G.nodes[seed_node].get("name", seed_node) if seed_node and graph.G.has_node(seed_node) else None,
+        "traversal_direction": traversal_dir,
+        "traversed_path": [graph.G.nodes[n].get("name", n) for n in traversed_nodes],
+        "sources": sources
+    }
